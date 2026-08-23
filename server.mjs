@@ -20,6 +20,9 @@ import { execFileSync } from "node:child_process";
 
 const PORT = Number(process.env.PORT || 4820);
 const AGENT_BASE = process.env.AGENT_SERVER_URL || "http://127.0.0.1:18100";
+// Canvas UI base for "open this conversation" deep links. The demo Canvas UI
+// (with the insider cat) is served at :12000; override with CANVAS_UI_URL.
+const CANVAS_UI_URL = process.env.CANVAS_UI_URL || "http://127.0.0.1:12000";
 const AGENT_MODEL = process.env.SECRETARY_AGENT_MODEL || "openhands_deepseek-v4-flash";
 const REALTIME_MODEL = process.env.SECRETARY_RT_MODEL || "gpt-realtime";
 const VOICE = process.env.SECRETARY_VOICE || "cedar";
@@ -159,6 +162,7 @@ async function buildBoard() {
   return {
     generatedAt: new Date().toISOString(),
     repo: BEADS_REPO,
+    canvasUiUrl: CANVAS_UI_URL,
     beadsCount: beads.length,
     convError,
     projects,

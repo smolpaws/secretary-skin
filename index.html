@@ -58,8 +58,9 @@
   .tid{font-family:var(--mono);font-size:9.5px;color:#5c6672}
 
   .convs{border-top:1px dashed var(--border)}
-  .conv{display:flex;gap:8px;align-items:center;padding:6px 6px;border-radius:7px}
+  .conv{display:flex;gap:8px;align-items:center;padding:6px 6px;border-radius:7px;text-decoration:none;color:inherit;cursor:pointer}
   .conv:hover{background:var(--surface2)}
+  .conv:hover .ct{color:var(--accent)}
   .conv .dot{width:7px;height:7px;border-radius:50%;flex:none}
   .conv .dot.idle{background:var(--muted)} .conv .dot.finished{background:var(--ok)}
   .conv .dot.running{background:var(--accent);box-shadow:0 0 7px var(--accent)}

@@ -32,6 +32,8 @@ function beadHTML(t) {
   </div>`;
 }
 
+let CANVAS_UI = "http://127.0.0.1:12000";
+
 function convHTML(c) {
   const st = (c.status || "idle").toLowerCase();
   const cls = ["running", "executing", "busy"].includes(st)
@@ -39,7 +41,8 @@ function convHTML(c) {
     : ["finished", "completed", "stopped"].includes(st)
       ? "finished"
       : "idle";
-  return `<div class="conv"><span class="dot ${cls}"></span><span class="ct">${esc(c.title)}</span>${c.model ? `<span class="cm">${esc(c.model)}</span>` : ""}<span class="cid">${esc(String(c.id).slice(0, 8))}</span></div>`;
+  const href = `${CANVAS_UI}/conversations/${encodeURIComponent(c.id)}`;
+  return `<a class="conv" href="${esc(href)}" target="_blank" rel="noopener" title="Open in Canvas"><span class="dot ${cls}"></span><span class="ct">${esc(c.title)}</span>${c.model ? `<span class="cm">${esc(c.model)}</span>` : ""}<span class="cid">${esc(String(c.id).slice(0, 8))}</span></a>`;
 }
 
 function laneHTML(p) {
@@ -65,6 +68,7 @@ async function loadBoard() {
   try {
     const d = await (await fetch("/api/board")).json();
     if (d.error) throw new Error(d.error);
+    if (d.canvasUiUrl) CANVAS_UI = d.canvasUiUrl;
     boardEl.innerHTML = d.projects.map(laneHTML).join("");
     const conv = d.projects.reduce((n, p) => n + p.conversations.length, 0);
     metaEl.textContent = `${d.beadsCount} beads · ${conv} linked · ${d.unassigned.length} unassigned`;
