@@ -1,14 +1,18 @@
-// Secretary board — prototype (smolpaws-s9e.1).
+// Secretary board — prototype v2 (smolpaws-s9e.1), self-referential demo.
 //
-// A throwaway prototype to settle the FIXED board layout before we wire the
-// real ticket store + dispatch. It reads REAL conversations from the local
-// agent-server and lays them out as cards in state columns, so we can look at
-// the layout with live data instead of mockups.
+// Engel's shape: split the board by PROJECT; in each project the TICKETS are
+// OUR beads; and the conversations that belong to a project are shown inside it.
+// The demo content is "this big round" — the three epics we're building right
+// now — so the board is literally a picture of its own construction.
 //
-// This does NOT modify the live Purr Projects skin; it's a separate proto dir.
-// Read-only against the agent-server.
+//   Project  = an epic bead (Insider / Voice / Secretary)
+//   Ticket   = a child bead of that epic  (open/closed, priority)
+//   Convo    = an agent-server conversation attributed to the project
 //
-// Run:  node server.mjs   then open http://127.0.0.1:4820/
+// Read-only. Reads beads from the smolpaws repo JSONL and conversations from
+// the local agent-server. Does not touch the live Purr Projects skin.
+//
+// Run:  PORT=4820 node server.mjs   then open http://127.0.0.1:4820/
 
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -17,6 +21,10 @@ import { join } from "node:path";
 
 const PORT = Number(process.env.PORT || 4820);
 const AGENT_BASE = process.env.AGENT_SERVER_URL || "http://127.0.0.1:18100";
+const BEADS_JSONL =
+  process.env.BEADS_JSONL ||
+  join(homedir(), "repos", "smolpaws", ".beads", "issues.jsonl");
+
 let AGENT_KEY = process.env.AGENT_SERVER_KEY || "";
 if (!AGENT_KEY) {
   try {
@@ -29,20 +37,29 @@ if (!AGENT_KEY) {
   }
 }
 
-// The fixed columns. Until tickets exist, a conversation's execution_status
-// maps to a column; once tickets land these become the ticket lifecycle
-// (pending / in_progress / needs_input / done).
-const COLUMNS = [
-  { id: "in_progress", label: "In progress", statuses: ["running", "executing", "busy"] },
-  { id: "needs_input", label: "Needs input", statuses: ["waiting_for_confirmation", "paused", "stuck", "error"] },
-  { id: "idle", label: "Idle", statuses: ["idle", "unknown", null] },
-  { id: "done", label: "Done", statuses: ["finished", "completed", "stopped"] },
+// The projects of "this big round" = the three epics, in build order.
+const PROJECTS = [
+  { id: "smolpaws-08f", key: "insider", name: "Insider Cat", blurb: "A SmolPaws living inside OpenHands" },
+  { id: "smolpaws-3e1", key: "voice", name: "Realtime Voice", blurb: "Talk to the cat, it acts" },
+  { id: "smolpaws-s9e", key: "secretary", name: "The Secretary", blurb: "The cat manages your conversations" },
 ];
 
-function columnFor(status) {
-  const s = (status || "idle").toLowerCase();
-  for (const c of COLUMNS) if (c.statuses.includes(s)) return c.id;
-  return "idle";
+function loadBeads() {
+  const rows = [];
+  try {
+    const text = readFileSync(BEADS_JSONL, "utf8");
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        rows.push(JSON.parse(line));
+      } catch {
+        /* skip bad line */
+      }
+    }
+  } catch {
+    /* no beads file */
+  }
+  return rows;
 }
 
 async function agentGet(path) {
@@ -53,64 +70,79 @@ async function agentGet(path) {
   return res.json();
 }
 
-// Latest agent action summary for a conversation — the "alive" line on a card.
-// The LLM-predicted summary rides in an ActionEvent's tool_call arguments.
-async function latestAction(id) {
-  try {
-    const d = await agentGet(
-      `/api/conversations/${encodeURIComponent(id)}/events/search?limit=10`,
-    );
-    for (const it of d.items || []) {
-      const tc = it.action?.tool_call || it.tool_call;
-      const args = tc?.arguments;
-      if (typeof args === "string") {
-        try {
-          const j = JSON.parse(args);
-          if (j.summary) return j.summary;
-        } catch {
-          /* not json */
-        }
-      }
-      if (it.action?.kind) return it.action.kind;
-    }
-  } catch {
-    /* best effort */
-  }
-  return null;
-}
-
 function shortModel(m) {
   if (!m) return null;
   return String(m).split("/").pop().replace(/^openhands_/, "");
 }
 
+// Attribute a conversation to a project. Today the only hard signal is the
+// smolpaws=insider tag -> Insider. The rest are unattributed (honest: the link
+// from a conversation to a project/ticket is exactly what the ticket store,
+// s9e.3, will add). We surface them in an "unassigned" bucket so the gap shows.
+function projectForConversation(c) {
+  const tag = c.tags && c.tags.smolpaws;
+  if (tag === "insider") return "smolpaws-08f";
+  return null;
+}
+
 async function buildBoard() {
-  const d = await agentGet("/api/conversations/search?limit=40");
-  const items = d.items || [];
-  // Only enrich the few non-idle ones with a live action (keep it snappy).
-  const cards = await Promise.all(
-    items.map(async (c) => {
-      const col = columnFor(c.execution_status);
-      const action = col === "in_progress" ? await latestAction(c.id) : null;
-      return {
-        id: c.id,
-        title: c.title || `conversation ${String(c.id).slice(0, 8)}`,
-        status: c.execution_status || "idle",
-        column: col,
-        model: shortModel(c.current_model_id || c.agent?.llm?.model),
-        tags: c.tags || {},
-        updatedAt: c.updated_at || c.created_at || null,
-        action,
-      };
-    }),
-  );
-  const columns = COLUMNS.map((col) => ({
-    ...col,
-    cards: cards
-      .filter((c) => c.column === col.id)
-      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
-  }));
-  return { generatedAt: new Date().toISOString(), total: cards.length, columns };
+  const beads = loadBeads();
+  const byId = new Map(beads.map((b) => [b.id, b]));
+
+  let conversations = [];
+  let convError = null;
+  try {
+    const d = await agentGet("/api/conversations/search?limit=60");
+    conversations = (d.items || []).map((c) => ({
+      id: c.id,
+      title: c.title || `conversation ${String(c.id).slice(0, 8)}`,
+      status: c.execution_status || "idle",
+      model: shortModel(c.current_model_id || c.agent?.llm?.model),
+      tags: c.tags || {},
+      project: projectForConversation(c),
+      updatedAt: c.updated_at || c.created_at || null,
+    }));
+  } catch (e) {
+    convError = String(e.message || e);
+  }
+
+  const projects = PROJECTS.map((p) => {
+    // Tickets = child beads of this epic (id starts with "<epic>.").
+    const tickets = beads
+      .filter((b) => b.id.startsWith(`${p.id}.`))
+      .map((b) => ({
+        id: b.id,
+        title: b.title.replace(/^(insider|voice|secretary):\s*/i, ""),
+        status: b.status,
+        priority: b.priority,
+        type: b.issue_type,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+
+    const convs = conversations.filter((c) => c.project === p.id);
+    const epic = byId.get(p.id);
+    const openCount = tickets.filter((t) => t.status !== "closed").length;
+    const doneCount = tickets.filter((t) => t.status === "closed").length;
+    return {
+      ...p,
+      epicTitle: epic ? epic.title : p.name,
+      epicStatus: epic ? epic.status : "?",
+      tickets,
+      openCount,
+      doneCount,
+      conversations: convs,
+    };
+  });
+
+  const unassigned = conversations.filter((c) => !c.project);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    beadsCount: beads.length,
+    convError,
+    projects,
+    unassigned,
+  };
 }
 
 const server = createServer(async (req, res) => {
@@ -139,5 +171,6 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`[secretary-proto] http://127.0.0.1:${PORT}/`);
+  console.log(`[secretary-proto] beads=${BEADS_JSONL}`);
   console.log(`[secretary-proto] agent=${AGENT_BASE} key=${AGENT_KEY ? "yes" : "MISSING"}`);
 });
