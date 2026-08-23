@@ -93,20 +93,53 @@ async function agentGet(path) {
 }
 
 // Run one turn of the real OpenHands agent as an LLM.
+//
+// We STREAM /v1/chat/completions and accumulate. A full agent turn can take
+// 20s+ and 60k+ prompt tokens (it explores the repo); the non-streaming path
+// used to surface a 504 because the single request outran an upstream timeout.
+// Streaming returns the first bytes in ~4s and keeps the connection alive for
+// the whole turn, so it no longer times out. (bead smolpaws-2et)
 async function agentComplete(request) {
   if (!AGENT_KEY) throw new Error("no agent-server key");
   const res = await fetch(`${AGENT_BASE}/v1/chat/completions`, {
     method: "POST",
-    headers: { "X-Session-API-Key": AGENT_KEY, "content-type": "application/json" },
+    headers: {
+      "X-Session-API-Key": AGENT_KEY,
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    },
     body: JSON.stringify({
       model: AGENT_MODEL,
       messages: [{ role: "user", content: request }],
-      stream: false,
+      stream: true,
     }),
   });
-  if (!res.ok) throw new Error(`/v1/chat/completions -> ${res.status}`);
-  const d = await res.json();
-  return d?.choices?.[0]?.message?.content ?? "(no answer)";
+  if (!res.ok || !res.body) {
+    throw new Error(`/v1/chat/completions -> ${res.status}`);
+  }
+
+  // Parse the SSE stream, concatenating choices[].delta.content.
+  let answer = "";
+  let buf = "";
+  const decoder = new TextDecoder();
+  for await (const chunk of res.body) {
+    buf += decoder.decode(chunk, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const delta = JSON.parse(data)?.choices?.[0]?.delta?.content;
+        if (delta) answer += delta;
+      } catch {
+        /* ignore keep-alive / partial lines */
+      }
+    }
+  }
+  return answer || "(no answer)";
 }
 
 function shortModel(m) {
