@@ -1,16 +1,14 @@
-// Secretary board — prototype v2 (smolpaws-s9e.1), self-referential demo.
+// The Secretary — board + prompt box + voice (smolpaws-s9e.1).
 //
-// Engel's shape: split the board by PROJECT; in each project the TICKETS are
-// OUR beads; and the conversations that belong to a project are shown inside it.
-// The demo content is "this big round" — the three epics we're building right
-// now — so the board is literally a picture of its own construction.
+// Self-referential demo of "this big round": project lanes = our epics, the
+// beads inside each are OUR beads, and each project's conversations nest under
+// it. It is NOT read-only: there is a prompt box (typed -> the agent brain via
+// /v1/chat/completions), and clicking the cat starts realtime voice, where the
+// voice model can also drive the prompt box (fill/clear) as ONE extra tool on
+// top of everything the agent can already do.
 //
-//   Project  = an epic bead (Insider / Voice / Secretary)
-//   Ticket   = a child bead of that epic  (open/closed, priority)
-//   Convo    = an agent-server conversation attributed to the project
-//
-// Read-only. Reads beads from the smolpaws repo JSONL and conversations from
-// the local agent-server. Does not touch the live Purr Projects skin.
+// Read-only against the agent-server for board reads; the prompt box runs agent
+// turns. Does not touch the live Purr Projects skin.
 //
 // Run:  PORT=4820 node server.mjs   then open http://127.0.0.1:4820/
 
@@ -18,12 +16,17 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const PORT = Number(process.env.PORT || 4820);
 const AGENT_BASE = process.env.AGENT_SERVER_URL || "http://127.0.0.1:18100";
+const AGENT_MODEL = process.env.SECRETARY_AGENT_MODEL || "openhands_deepseek-v4-flash";
+const REALTIME_MODEL = process.env.SECRETARY_RT_MODEL || "gpt-realtime";
+const VOICE = process.env.SECRETARY_VOICE || "cedar";
 const BEADS_JSONL =
   process.env.BEADS_JSONL ||
   join(homedir(), "repos", "smolpaws", ".beads", "issues.jsonl");
+const BEADS_REPO = "smolpaws";
 
 let AGENT_KEY = process.env.AGENT_SERVER_KEY || "";
 if (!AGENT_KEY) {
@@ -37,7 +40,24 @@ if (!AGENT_KEY) {
   }
 }
 
-// The projects of "this big round" = the three epics, in build order.
+// --- auth for realtime voice (ChatGPT subscription, then API key) ------------
+
+function readChatgptAuth() {
+  try {
+    const j = JSON.parse(
+      readFileSync(join(homedir(), ".codex", "auth.json"), "utf8"),
+    );
+    if (j?.auth_mode === "chatgpt" && j?.tokens?.access_token) {
+      return { token: j.tokens.access_token, accountId: j.tokens.account_id || "" };
+    }
+  } catch {
+    /* none */
+  }
+  return null;
+}
+
+// --- the projects of "this big round" = the three epics ----------------------
+
 const PROJECTS = [
   { id: "smolpaws-08f", key: "insider", name: "Insider Cat", blurb: "A SmolPaws living inside OpenHands" },
   { id: "smolpaws-3e1", key: "voice", name: "Realtime Voice", blurb: "Talk to the cat, it acts" },
@@ -47,17 +67,16 @@ const PROJECTS = [
 function loadBeads() {
   const rows = [];
   try {
-    const text = readFileSync(BEADS_JSONL, "utf8");
-    for (const line of text.split("\n")) {
+    for (const line of readFileSync(BEADS_JSONL, "utf8").split("\n")) {
       if (!line.trim()) continue;
       try {
         rows.push(JSON.parse(line));
       } catch {
-        /* skip bad line */
+        /* skip */
       }
     }
   } catch {
-    /* no beads file */
+    /* none */
   }
   return rows;
 }
@@ -70,25 +89,34 @@ async function agentGet(path) {
   return res.json();
 }
 
-function shortModel(m) {
-  if (!m) return null;
-  return String(m).split("/").pop().replace(/^openhands_/, "");
+// Run one turn of the real OpenHands agent as an LLM.
+async function agentComplete(request) {
+  if (!AGENT_KEY) throw new Error("no agent-server key");
+  const res = await fetch(`${AGENT_BASE}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "X-Session-API-Key": AGENT_KEY, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: AGENT_MODEL,
+      messages: [{ role: "user", content: request }],
+      stream: false,
+    }),
+  });
+  if (!res.ok) throw new Error(`/v1/chat/completions -> ${res.status}`);
+  const d = await res.json();
+  return d?.choices?.[0]?.message?.content ?? "(no answer)";
 }
 
-// Attribute a conversation to a project. Today the only hard signal is the
-// smolpaws=insider tag -> Insider. The rest are unattributed (honest: the link
-// from a conversation to a project/ticket is exactly what the ticket store,
-// s9e.3, will add). We surface them in an "unassigned" bucket so the gap shows.
+function shortModel(m) {
+  return m ? String(m).split("/").pop().replace(/^openhands_/, "") : null;
+}
+
 function projectForConversation(c) {
-  const tag = c.tags && c.tags.smolpaws;
-  if (tag === "insider") return "smolpaws-08f";
-  return null;
+  return c.tags && c.tags.smolpaws === "insider" ? "smolpaws-08f" : null;
 }
 
 async function buildBoard() {
   const beads = loadBeads();
   const byId = new Map(beads.map((b) => [b.id, b]));
-
   let conversations = [];
   let convError = null;
   try {
@@ -100,77 +128,228 @@ async function buildBoard() {
       model: shortModel(c.current_model_id || c.agent?.llm?.model),
       tags: c.tags || {},
       project: projectForConversation(c),
-      updatedAt: c.updated_at || c.created_at || null,
     }));
   } catch (e) {
     convError = String(e.message || e);
   }
 
   const projects = PROJECTS.map((p) => {
-    // Tickets = child beads of this epic (id starts with "<epic>.").
-    const tickets = beads
+    const beadsHere = beads
       .filter((b) => b.id.startsWith(`${p.id}.`))
       .map((b) => ({
         id: b.id,
         title: b.title.replace(/^(insider|voice|secretary):\s*/i, ""),
+        fullTitle: b.title,
         status: b.status,
         priority: b.priority,
-        type: b.issue_type,
       }))
       .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
-
     const convs = conversations.filter((c) => c.project === p.id);
     const epic = byId.get(p.id);
-    const openCount = tickets.filter((t) => t.status !== "closed").length;
-    const doneCount = tickets.filter((t) => t.status === "closed").length;
     return {
       ...p,
       epicTitle: epic ? epic.title : p.name,
-      epicStatus: epic ? epic.status : "?",
-      tickets,
-      openCount,
-      doneCount,
+      beads: beadsHere,
+      openCount: beadsHere.filter((t) => t.status !== "closed").length,
+      doneCount: beadsHere.filter((t) => t.status === "closed").length,
       conversations: convs,
     };
   });
 
-  const unassigned = conversations.filter((c) => !c.project);
-
   return {
     generatedAt: new Date().toISOString(),
+    repo: BEADS_REPO,
     beadsCount: beads.length,
     convError,
     projects,
-    unassigned,
+    unassigned: conversations.filter((c) => !c.project),
   };
+}
+
+// --- realtime token mint + the prompt-box tool schema ------------------------
+
+async function mintToken() {
+  const chatgpt = readChatgptAuth();
+  const apiKey =
+    process.env.OPENAI_API_KEY ||
+    keychain("openhands", "OPENAI_API_KEY_BORIS");
+  const attempts = [];
+  if (chatgpt) attempts.push({ mode: "chatgpt", ...chatgpt });
+  if (apiKey) attempts.push({ mode: "apikey", token: apiKey });
+  const body = JSON.stringify({
+    session: {
+      type: "realtime",
+      model: REALTIME_MODEL,
+      audio: { output: { voice: VOICE }, input: { transcription: { model: "gpt-4o-mini-transcribe" } } },
+    },
+  });
+  let lastErr = "no auth";
+  for (const a of attempts) {
+    const headers = { authorization: `Bearer ${a.token}`, "content-type": "application/json" };
+    if (a.mode === "chatgpt" && a.accountId) headers["chatgpt-account-id"] = a.accountId;
+    const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+      method: "POST",
+      headers,
+      body,
+    });
+    const data = await res.json();
+    if (res.ok) {
+      data._auth = a.mode;
+      return data;
+    }
+    lastErr = data?.error?.message || `mint ${res.status}`;
+  }
+  throw new Error(lastErr);
+}
+
+function keychain(service, account) {
+  try {
+    return execFileSync(
+      "security",
+      ["find-generic-password", "-s", service, "-a", account, "-w"],
+      { encoding: "utf8" },
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+// The tools the realtime voice model may call. `set_prompt_box` is the ONE
+// extra Secretary-View capability; `ask_the_agent` is the whole agent brain.
+const VOICE_TOOLS = [
+  {
+    type: "function",
+    name: "set_prompt_box",
+    description:
+      "Write, append to, or clear the text in the user's prompt input box in Secretary View. Use when the user asks you to draft, fill, edit, or clear what's in their box — e.g. 'put a message to the deploy bead in my box'.",
+    parameters: {
+      type: "object",
+      properties: {
+        mode: { type: "string", enum: ["set", "append", "clear"], description: "set replaces, append adds, clear empties." },
+        text: { type: "string", description: "The text (ignored for clear)." },
+      },
+      required: ["mode"],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
+    name: "ask_the_agent",
+    description:
+      "Hand a request to the OpenHands agent to actually do or find out: inspect/manage the user's conversations and beads, run commands, look things up on this backend. Pass a clear instruction.",
+    parameters: {
+      type: "object",
+      properties: { request: { type: "string" } },
+      required: ["request"],
+      additionalProperties: false,
+    },
+  },
+];
+
+// The extra phrase that tells the agent it is in Secretary View.
+function secretaryContext() {
+  return (
+    "You are SmolPaws, the Secretary — a small, calm, lightly mischievous cat agent. " +
+    "The human is looking at SECRETARY VIEW: a board of their projects (our epics), the beads in each, " +
+    "and the conversations nested under each project, on this local OpenHands backend. " +
+    "You can do everything the OpenHands agent can (inspect and manage conversations and beads, run commands, " +
+    "find things on this backend) via ask_the_agent. In this view you have ONE extra ability: set_prompt_box, " +
+    "which fills, appends to, or clears the text in the human's prompt input box. Keep spoken replies short and warm; never read raw JSON aloud."
+  );
+}
+
+// --- http --------------------------------------------------------------------
+
+function send(res, status, body, type = "application/json") {
+  res.writeHead(status, {
+    "content-type": type,
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "content-type",
+  });
+  res.end(type === "application/json" ? JSON.stringify(body) : body);
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch {
+        resolve({});
+      }
+    });
+  });
 }
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+
   if (url.pathname === "/api/board") {
     try {
-      const board = await buildBoard();
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify(board));
+      return send(res, 200, await buildBoard());
     } catch (e) {
-      res.writeHead(502, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ error: String(e.message || e) }));
+      return send(res, 502, { error: String(e.message || e) });
     }
   }
+
+  if (url.pathname === "/api/voice-config") {
+    return send(res, 200, {
+      model: REALTIME_MODEL,
+      voice: VOICE,
+      tools: VOICE_TOOLS,
+      context: secretaryContext(),
+      hasSubscription: Boolean(readChatgptAuth()),
+    });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/realtime/token") {
+    try {
+      return send(res, 200, await mintToken());
+    } catch (e) {
+      return send(res, 502, { error: String(e.message || e) });
+    }
+  }
+
+  // Typed prompt box -> the agent brain.
+  if (req.method === "POST" && url.pathname === "/api/ask") {
+    const { request } = await readBody(req);
+    const t0 = Date.now();
+    try {
+      const answer = await agentComplete(String(request || "").trim());
+      return send(res, 200, { ok: true, ms: Date.now() - t0, answer });
+    } catch (e) {
+      return send(res, 502, { ok: false, error: String(e.message || e) });
+    }
+  }
+
+  // Voice tool bridge: ask_the_agent runs the brain; set_prompt_box is handled
+  // client-side (the browser owns the textarea), so it never reaches here.
+  if (req.method === "POST" && url.pathname === "/api/agent/ask_the_agent") {
+    const { request } = await readBody(req);
+    const t0 = Date.now();
+    try {
+      const answer = await agentComplete(String(request || "").trim());
+      return send(res, 200, { ok: true, ms: Date.now() - t0, result: { answer } });
+    } catch (e) {
+      return send(res, 502, { ok: false, error: String(e.message || e) });
+    }
+  }
+
   const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
   try {
     const body = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
     const type = file.endsWith(".js") ? "text/javascript" : "text/html";
-    res.writeHead(200, { "content-type": `${type}; charset=utf-8` });
-    return res.end(body);
+    return send(res, 200, body, `${type}; charset=utf-8`);
   } catch {
-    res.writeHead(404);
-    return res.end("not found");
+    return send(res, 404, "not found", "text/plain");
   }
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[secretary-proto] http://127.0.0.1:${PORT}/`);
-  console.log(`[secretary-proto] beads=${BEADS_JSONL}`);
-  console.log(`[secretary-proto] agent=${AGENT_BASE} key=${AGENT_KEY ? "yes" : "MISSING"}`);
+  console.log(`[secretary] http://127.0.0.1:${PORT}/`);
+  console.log(`[secretary] beads=${BEADS_JSONL}`);
+  console.log(`[secretary] agent=${AGENT_BASE} key=${AGENT_KEY ? "yes" : "MISSING"}`);
+  console.log(`[secretary] realtime auth=${readChatgptAuth() ? "ChatGPT subscription" : "api key/none"}`);
 });

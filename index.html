@@ -17,7 +17,10 @@
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.5}
 
   header.top{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:5}
-  .cat{width:34px;height:34px;filter:drop-shadow(0 0 8px rgba(78,161,255,.5))}
+  .cat{width:34px;height:34px;filter:drop-shadow(0 0 8px rgba(78,161,255,.5));cursor:pointer;transition:transform .15s,filter .15s}
+  .cat:hover{transform:scale(1.08)}
+  .cat.live{filter:drop-shadow(0 0 12px rgba(95,202,125,.9));animation:catlive 1.4s infinite}
+  @keyframes catlive{0%,100%{filter:drop-shadow(0 0 8px rgba(95,202,125,.6))}50%{filter:drop-shadow(0 0 16px rgba(95,202,125,1))}}
   header.top h1{font-size:16px;margin:0;font-weight:600}
   header.top .tag{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent-dim);border-radius:20px;padding:2px 8px}
   header.top .meta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
@@ -41,13 +44,14 @@
   .section{padding:10px 12px}
   .section h4{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);margin:2px 4px 8px;font-weight:700}
 
-  .ticket{display:flex;gap:8px;align-items:flex-start;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:7px}
-  .ticket.closed{opacity:.55}
-  .ticket .box{flex:none;width:14px;height:14px;border-radius:4px;border:1.5px solid var(--muted);margin-top:2px;position:relative}
-  .ticket.closed .box{background:var(--ok);border-color:var(--ok)}
-  .ticket.closed .box::after{content:"✓";position:absolute;inset:0;font-size:10px;line-height:11px;text-align:center;color:#0e1116;font-weight:800}
-  .ticket .tt{font-size:12.5px}
-  .ticket .tmeta{margin-top:3px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .bead{display:flex;gap:8px;align-items:flex-start;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:border-color .12s,background .12s}
+  .bead:hover{border-color:var(--accent);background:var(--surface2)}
+  .bead.closed{opacity:.5}
+  .bead .box{flex:none;width:14px;height:14px;border-radius:4px;border:1.5px solid var(--muted);margin-top:2px;position:relative}
+  .bead.closed .box{background:var(--ok);border-color:var(--ok)}
+  .bead.closed .box::after{content:"✓";position:absolute;inset:0;font-size:10px;line-height:11px;text-align:center;color:#0e1116;font-weight:800}
+  .bead .tt{font-size:12.5px}
+  .bead .tmeta{margin-top:3px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
   .prio{font-family:var(--mono);font-size:9.5px;padding:0 6px;border-radius:20px;border:1px solid var(--border);color:var(--muted)}
   .prio.p0{color:var(--danger);border-color:var(--danger)}
   .prio.p1{color:var(--warn);border-color:var(--warn)}
@@ -64,22 +68,45 @@
   .conv .cid{font-family:var(--mono);font-size:9.5px;color:#5c6672}
   .none{color:var(--muted);font-size:11.5px;padding:4px 6px;font-style:italic}
 
+  /* Prompt dock — the not-read-only part. */
+  .dock{position:sticky;bottom:0;background:linear-gradient(180deg,transparent,var(--bg) 22%);padding:10px 22px 16px;z-index:4}
+  .answer{max-width:1100px;margin:0 auto 8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 14px;font-size:13px;color:var(--text);display:none}
+  .answer.show{display:block}
+  .answer .who{font-family:var(--mono);font-size:10px;color:var(--accent);margin-bottom:4px}
+  .answer.think .who::after{content:" · thinking…";color:var(--muted)}
+  .promptbar{max-width:1100px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;background:var(--surface);border:1px solid var(--border-strong,#37414d);border-radius:12px;padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .promptbar textarea{flex:1;background:transparent;border:none;resize:none;color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.45;max-height:160px;outline:none}
+  .promptbar textarea::placeholder{color:var(--muted)}
+  .promptbar .send{background:var(--accent);color:#08111f;border:none;border-radius:9px;padding:9px 16px;font-weight:650;font-size:13px;cursor:pointer}
+  .promptbar .send:disabled{opacity:.4;cursor:not-allowed}
+  .vstatus{font-family:var(--mono);font-size:10.5px;color:var(--muted);padding:0 4px;align-self:center}
+  .vstatus.live{color:var(--ok)} .vstatus.err{color:var(--danger)}
+
   footer{padding:10px 22px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;font-family:var(--mono)}
   .err{color:var(--danger)}
 </style>
 </head>
 <body>
 <header class="top">
-  <svg class="cat" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-label="SmolPaws"><defs><radialGradient id="f" cx="50%" cy="38%" r="65%"><stop offset="0%" stop-color="#e6ecfa"/><stop offset="100%" stop-color="#9fb0d6"/></radialGradient></defs><path d="M15 20 L12 2 L29 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M49 20 L52 2 L35 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M17 16 L15 6 L24 14 Z" fill="#f2b8c6"/><path d="M47 16 L49 6 L40 14 Z" fill="#f2b8c6"/><ellipse cx="32" cy="35" rx="21" ry="19" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5"/><circle cx="24" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="40" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="24.6" cy="33.4" r="3" fill="#2b2f38"/><circle cx="40.6" cy="33.4" r="3" fill="#2b2f38"/><path d="M32 39 l-2.2 -1.6 h4.4 Z" fill="#f2b8c6"/><path d="M18 37 h-9 M19 41 l-8 2 M46 37 h9 M45 41 l8 2" stroke="#c4cad4" stroke-width="1" stroke-linecap="round"/></svg>
+  <svg id="cat" class="cat" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-label="SmolPaws — click to talk" title="Click to talk"><defs><radialGradient id="f" cx="50%" cy="38%" r="65%"><stop offset="0%" stop-color="#e6ecfa"/><stop offset="100%" stop-color="#9fb0d6"/></radialGradient></defs><path d="M15 20 L12 2 L29 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M49 20 L52 2 L35 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M17 16 L15 6 L24 14 Z" fill="#f2b8c6"/><path d="M47 16 L49 6 L40 14 Z" fill="#f2b8c6"/><ellipse cx="32" cy="35" rx="21" ry="19" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5"/><circle cx="24" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="40" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="24.6" cy="33.4" r="3" fill="#2b2f38"/><circle cx="40.6" cy="33.4" r="3" fill="#2b2f38"/><path d="M32 39 l-2.2 -1.6 h4.4 Z" fill="#f2b8c6"/><path d="M18 37 h-9 M19 41 l-8 2 M46 37 h9 M45 41 l8 2" stroke="#c4cad4" stroke-width="1" stroke-linecap="round"/></svg>
   <h1>The Secretary</h1>
   <span class="tag">prototype · this round</span>
+  <span class="vstatus" id="vstatus">🎙 click the cat to talk</span>
   <span class="meta" id="meta">loading…</span>
   <button id="refresh">Refresh</button>
 </header>
 
 <div class="board" id="board"></div>
 
-<footer id="footer">Projects = our epics · tickets = our beads · conversations nested per project · read-only · smolpaws-s9e.1</footer>
+<div class="dock">
+  <div class="answer" id="answer"><div class="who">🐾 secretary</div><div class="body" id="answerBody"></div></div>
+  <div class="promptbar">
+    <textarea id="prompt" rows="1" placeholder="Click a bead to start a note, or ask the secretary anything… (Enter to send)"></textarea>
+    <button class="send" id="send">Send</button>
+  </div>
+</div>
+
+<footer id="footer">Projects = our epics · beads = our beads · conversations nested per project · click a bead to draft · click the cat to talk · smolpaws-s9e.1</footer>
 
 <script src="/board.js"></script>
 </body>
