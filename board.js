@@ -167,12 +167,21 @@ async function startVoice() {
     dc = pc.createDataChannel("oai-events");
     dc.onopen = () => {
       vstatus("🎙 listening — talk to the cat", "live");
+      // Seed the cat with whatever is already in the box (e.g. from a bead
+      // click) so it starts the conversation aware of the in-progress text,
+      // and can still re-read it live via get_prompt_box.
+      const box = promptEl.value.trim();
+      const instructions =
+        voiceCfg.context +
+        (box
+          ? `\n\nRight now the human's prompt box already contains this in-progress text:\n"""\n${box}\n"""`
+          : "\n\nRight now the human's prompt box is empty.");
       dc.send(
         JSON.stringify({
           type: "session.update",
           session: {
             type: "realtime",
-            instructions: voiceCfg.context,
+            instructions,
             tools: voiceCfg.tools,
             tool_choice: "auto",
           },
@@ -215,8 +224,12 @@ async function handleVoiceEvent(ev) {
       args = ev.arguments ? JSON.parse(ev.arguments) : {};
     } catch {}
     let output;
-    if (ev.name === "set_prompt_box") {
-      // The ONE extra Secretary-View capability — browser owns the textarea.
+    if (ev.name === "get_prompt_box") {
+      // Read the live textarea — browser owns it.
+      const box = promptEl.value;
+      output = { box, empty: box.trim() === "" };
+    } else if (ev.name === "set_prompt_box") {
+      // The extra Secretary-View capability — browser owns the textarea.
       if (args.mode === "clear") setPrompt("");
       else if (args.mode === "append") setPrompt(promptEl.value + (args.text || ""));
       else setPrompt(args.text || "");

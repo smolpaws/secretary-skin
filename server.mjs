@@ -223,9 +223,16 @@ function keychain(service, account) {
 const VOICE_TOOLS = [
   {
     type: "function",
+    name: "get_prompt_box",
+    description:
+      "Read the CURRENT text in the user's prompt input box in Secretary View. ALWAYS call this first when the user refers to 'this', 'the box', 'what's here', 'what I'm working on', or asks you to edit/continue what they already started — clicking a bead pre-fills the box, so there is often text there already.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    type: "function",
     name: "set_prompt_box",
     description:
-      "Write, append to, or clear the text in the user's prompt input box in Secretary View. Use when the user asks you to draft, fill, edit, or clear what's in their box — e.g. 'put a message to the deploy bead in my box'.",
+      "Write, append to, or clear the text in the user's prompt input box in Secretary View. Use when the user asks you to draft, fill, edit, or clear what's in their box — e.g. 'put a message to the deploy bead in my box'. If editing existing text, call get_prompt_box first so you keep what's there.",
     parameters: {
       type: "object",
       properties: {
@@ -257,8 +264,11 @@ function secretaryContext() {
     "The human is looking at SECRETARY VIEW: a board of their projects (our epics), the beads in each, " +
     "and the conversations nested under each project, on this local OpenHands backend. " +
     "You can do everything the OpenHands agent can (inspect and manage conversations and beads, run commands, " +
-    "find things on this backend) via ask_the_agent. In this view you have ONE extra ability: set_prompt_box, " +
-    "which fills, appends to, or clears the text in the human's prompt input box. Keep spoken replies short and warm; never read raw JSON aloud."
+    "find things on this backend) via ask_the_agent. In this view you also have prompt-box tools: get_prompt_box " +
+    "reads the CURRENT text in the human's input box, and set_prompt_box fills/appends/clears it. " +
+    "The box often already has text — clicking a bead pre-fills it with what they're working on. " +
+    "So whenever the human says 'this', 'the box', 'what I'm working on', or asks you to continue/edit what's there, " +
+    "call get_prompt_box FIRST to read it. Keep spoken replies short and warm; never read raw JSON aloud."
   );
 }
 
