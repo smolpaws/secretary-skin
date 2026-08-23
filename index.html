@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Secretary — board prototype</title>
+<style>
+  :root{
+    --bg:#0e1116; --surface:#151a21; --surface2:#1a212b; --card:#1c2530;
+    --text:#e8ecf1; --muted:#8a95a3; --border:#26303b;
+    --accent:#4ea1ff; --accent-dim:#2b6fbf;
+    --silver:#c7ced8; --ok:#5fca7d; --warn:#f5b942; --danger:#ff6b7f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.5}
+
+  header.top{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .cat{width:34px;height:34px;filter:drop-shadow(0 0 8px rgba(78,161,255,.5))}
+  header.top h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.01em}
+  header.top .tag{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent-dim);border-radius:20px;padding:2px 8px}
+  header.top .meta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  header.top button{font-family:var(--sans);font-size:12px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer}
+  header.top button:hover{border-color:var(--accent)}
+
+  /* Fixed 4-column board. Equal columns, horizontal scroll only on tiny screens. */
+  .board{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px 22px;align-items:start}
+  @media(max-width:900px){.board{grid-auto-flow:column;grid-auto-columns:78vw;grid-template-columns:none;overflow-x:auto}}
+
+  .col{background:var(--surface);border:1px solid var(--border);border-radius:12px;min-height:120px;display:flex;flex-direction:column}
+  .col > .head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border)}
+  .col .dot{width:8px;height:8px;border-radius:50%}
+  .col[data-col="in_progress"] .dot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .col[data-col="needs_input"] .dot{background:var(--warn)}
+  .col[data-col="idle"] .dot{background:var(--muted)}
+  .col[data-col="done"] .dot{background:var(--ok)}
+  .col .head .name{font-size:13px;font-weight:600;letter-spacing:.02em}
+  .col .head .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface2);border-radius:20px;padding:1px 8px}
+  .col .body{padding:10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;max-height:calc(100vh - 170px)}
+  .empty{color:var(--muted);font-size:12px;text-align:center;padding:18px 0}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:11px 12px;cursor:default;transition:border-color .15s}
+  .card:hover{border-color:var(--accent-dim)}
+  .card .title{font-size:13.5px;font-weight:550;color:var(--text);display:flex;gap:6px;align-items:flex-start}
+  .card .title .paw{color:var(--silver);flex:none}
+  .card .action{margin-top:7px;font-size:12px;color:var(--accent);display:flex;align-items:center;gap:6px}
+  .card .action .pulse{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:p 1.3s infinite}
+  @keyframes p{0%,100%{opacity:.3}50%{opacity:1}}
+  .card .foot{margin-top:9px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .chip{font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:20px;border:1px solid var(--border);color:var(--muted)}
+  .chip.model{color:var(--silver);border-color:#37414d}
+  .chip.tag{color:var(--accent);border-color:var(--accent-dim)}
+  .card .id{font-family:var(--mono);font-size:10px;color:#5c6672;margin-left:auto}
+
+  footer{padding:10px 22px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;font-family:var(--mono)}
+  .err{color:var(--danger)}
+</style>
+</head>
+<body>
+<header class="top">
+  <svg class="cat" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-label="SmolPaws"><defs><radialGradient id="f" cx="50%" cy="38%" r="65%"><stop offset="0%" stop-color="#e6ecfa"/><stop offset="100%" stop-color="#9fb0d6"/></radialGradient></defs><path d="M15 20 L12 2 L29 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M49 20 L52 2 L35 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M17 16 L15 6 L24 14 Z" fill="#f2b8c6"/><path d="M47 16 L49 6 L40 14 Z" fill="#f2b8c6"/><ellipse cx="32" cy="35" rx="21" ry="19" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5"/><circle cx="24" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="40" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="24.6" cy="33.4" r="3" fill="#2b2f38"/><circle cx="40.6" cy="33.4" r="3" fill="#2b2f38"/><path d="M32 39 l-2.2 -1.6 h4.4 Z" fill="#f2b8c6"/><path d="M18 37 h-9 M19 41 l-8 2 M46 37 h9 M45 41 l8 2" stroke="#c4cad4" stroke-width="1" stroke-linecap="round"/></svg>
+  <h1>The Secretary</h1>
+  <span class="tag">prototype</span>
+  <span class="meta" id="meta">loading…</span>
+  <button id="refresh">Refresh</button>
+</header>
+
+<div class="board" id="board"></div>
+
+<footer id="footer">Reading real conversations from the local agent-server · read-only · layout prototype for smolpaws-s9e.1</footer>
+
+<script src="/board.js"></script>
+</body>
+</html>
