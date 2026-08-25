@@ -27,22 +27,39 @@
   header.top button{font-family:var(--sans);font-size:12px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer}
   header.top button:hover{border-color:var(--accent)}
 
-  /* One lane per project, side by side. Fixed layout. */
-  .board{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:18px 22px;align-items:start}
-  @media(max-width:980px){.board{grid-auto-flow:column;grid-auto-columns:82vw;grid-template-columns:none;overflow-x:auto}}
+  /* Fixed four-column kanban — columns are conversation STATE, cards are
+     conversations. Deliberate designed layout (smolpaws-s9e.1). */
+  .board{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px 22px;align-items:start}
+  @media(max-width:1040px){.board{grid-auto-flow:column;grid-auto-columns:78vw;grid-template-columns:none;overflow-x:auto;scroll-snap-type:x mandatory}.col{scroll-snap-align:start}}
 
-  .lane{background:var(--surface);border:1px solid var(--border);border-radius:14px;display:flex;flex-direction:column;overflow:hidden}
-  .lane > .head{padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface2),var(--surface))}
-  .lane .pname{font-size:15px;font-weight:650;display:flex;align-items:center;gap:8px}
-  .lane .pname .id{font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:400}
-  .lane .blurb{font-size:12px;color:var(--muted);margin-top:2px}
-  .lane .bars{display:flex;gap:6px;margin-top:10px;align-items:center}
-  .bar{height:6px;border-radius:4px;flex:1;background:var(--border);overflow:hidden}
-  .bar > span{display:block;height:100%;background:var(--ok)}
-  .counts{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+  .col{background:var(--surface);border:1px solid var(--border);border-radius:14px;display:flex;flex-direction:column;min-height:120px}
+  .col > .chead{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0}
+  .col .cdot{width:9px;height:9px;border-radius:50%;flex:none}
+  .col.pending  .cdot{background:var(--muted)}
+  .col.progress .cdot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .col.input    .cdot{background:var(--warn)}
+  .col.done     .cdot{background:var(--ok)}
+  .col .cname{font-size:12.5px;font-weight:650;letter-spacing:.02em}
+  .col .ccount{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:1px 9px}
+  .col.progress > .chead{border-bottom-color:var(--accent-dim)}
+  .col .cbody{padding:10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:calc(100vh - 320px)}
 
-  .section{padding:10px 12px}
-  .section h4{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);margin:2px 4px 8px;font-weight:700}
+  /* Conversation card */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 11px;cursor:pointer;transition:border-color .12s,transform .08s;display:flex;flex-direction:column;gap:7px}
+  .card:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .card .ctitle{font-size:13px;font-weight:550;line-height:1.35;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .crow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .chip{font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:20px;border:1px solid var(--border);color:var(--muted);white-space:nowrap}
+  .chip.model{color:var(--silver);border-color:var(--border)}
+  .chip.proj{color:var(--accent);border-color:var(--accent-dim)}
+  .chip.state{display:inline-flex;align-items:center;gap:5px}
+  .chip.state .sd{width:7px;height:7px;border-radius:50%;flex:none}
+  .st-pending .sd{background:var(--muted)} .st-progress .sd{background:var(--accent)}
+  .st-input .sd{background:var(--warn)} .st-done .sd{background:var(--ok)}
+  .card .cid{font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+  .card .clink{margin-left:auto;font-size:10px;color:var(--accent);text-decoration:none;opacity:0;transition:opacity .12s}
+  .card:hover .clink{opacity:1}
+  .col .none{color:var(--muted);font-size:11.5px;padding:10px 6px;font-style:italic;text-align:center}
 
   .bead{display:flex;gap:8px;align-items:flex-start;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:border-color .12s,background .12s}
   .bead:hover{border-color:var(--accent);background:var(--surface2)}
@@ -91,7 +108,6 @@
 <header class="top">
   <svg id="cat" class="cat" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-label="SmolPaws — click to talk" title="Click to talk"><defs><radialGradient id="f" cx="50%" cy="38%" r="65%"><stop offset="0%" stop-color="#e6ecfa"/><stop offset="100%" stop-color="#9fb0d6"/></radialGradient></defs><path d="M15 20 L12 2 L29 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M49 20 L52 2 L35 15 Z" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5" stroke-linejoin="round"/><path d="M17 16 L15 6 L24 14 Z" fill="#f2b8c6"/><path d="M47 16 L49 6 L40 14 Z" fill="#f2b8c6"/><ellipse cx="32" cy="35" rx="21" ry="19" fill="url(#f)" stroke="#5f6f96" stroke-width="1.5"/><circle cx="24" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="40" cy="33" r="5" fill="#fff" stroke="#5f6f96" stroke-width=".8"/><circle cx="24.6" cy="33.4" r="3" fill="#2b2f38"/><circle cx="40.6" cy="33.4" r="3" fill="#2b2f38"/><path d="M32 39 l-2.2 -1.6 h4.4 Z" fill="#f2b8c6"/><path d="M18 37 h-9 M19 41 l-8 2 M46 37 h9 M45 41 l8 2" stroke="#c4cad4" stroke-width="1" stroke-linecap="round"/></svg>
   <h1>The Secretary</h1>
-  <span class="tag">prototype</span>
   <span class="vstatus" id="vstatus">🎙 click the cat to talk</span>
   <span class="meta" id="meta">loading…</span>
   <button id="refresh">Refresh</button>
@@ -107,7 +123,7 @@
   </div>
 </div>
 
-<footer id="footer">Projects = our epics · beads = our beads · conversations nested per project · click a bead to draft · click the cat to talk · smolpaws-s9e.1</footer>
+<footer id="footer">Columns = conversation state · cards = your conversations · click a card to draft about it · click the cat to talk · smolpaws-s9e.1</footer>
 
 <script src="board.js"></script>
 </body>
