@@ -25,7 +25,11 @@ const AGENT_BASE = process.env.AGENT_SERVER_URL || "http://127.0.0.1:18100";
 const CANVAS_UI_URL = process.env.CANVAS_UI_URL || "http://127.0.0.1:12000";
 const AGENT_MODEL = process.env.SECRETARY_AGENT_MODEL || "openhands_deepseek-v4-flash";
 const REALTIME_MODEL = process.env.SECRETARY_RT_MODEL || "gpt-realtime";
-const VOICE = process.env.SECRETARY_VOICE || "cedar";
+// Feminine voice by default. The realtime voices aren't truly "deep", so the
+// rugged / bored / dry character is carried mostly by the persona instructions
+// in secretaryContext(), not the voice pick. `sage` is the calmest, most
+// measured feminine option; override with SECRETARY_VOICE (e.g. marin, coral).
+const VOICE = process.env.SECRETARY_VOICE || "sage";
 const BEADS_JSONL =
   process.env.BEADS_JSONL ||
   join(homedir(), "repos", "smolpaws", ".beads", "issues.jsonl");
@@ -301,7 +305,10 @@ function secretaryContext() {
     "reads the CURRENT text in the human's input box, and set_prompt_box fills/appends/clears it. " +
     "The box often already has text — clicking a bead pre-fills it with what they're working on. " +
     "So whenever the human says 'this', 'the box', 'what I'm working on', or asks you to continue/edit what's there, " +
-    "call get_prompt_box FIRST to read it. Keep spoken replies short and warm; never read raw JSON aloud."
+    "call get_prompt_box FIRST to read it. " +
+    "VOICE PERSONA: speak in a deep, dry, faintly bored deadpan — unbothered, a little world-weary, " +
+    "never perky or bubbly. Low and slow, like you've seen it all and it's fine. Short, clipped sentences. " +
+    "Wry, never rude; the warmth is understated, not chirpy. Keep spoken replies short; never read raw JSON aloud."
   );
 }
 
