@@ -333,6 +333,13 @@ function readBody(req) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
+  // When installed as an Agent Canvas skin, requests arrive under the /skin
+  // prefix (the host proxies it through verbatim). Strip it so the same
+  // routes work both standalone (PORT=…/) and skinned (…/skin/).
+  if (url.pathname === "/skin" || url.pathname.startsWith("/skin/")) {
+    url.pathname = url.pathname.slice("/skin".length) || "/";
+  }
+
   if (url.pathname === "/api/board") {
     try {
       return send(res, 200, await buildBoard());

@@ -66,7 +66,7 @@ function laneHTML(p) {
 async function loadBoard() {
   metaEl.textContent = "refreshing…";
   try {
-    const d = await (await fetch("/api/board")).json();
+    const d = await (await fetch("api/board")).json();
     if (d.error) throw new Error(d.error);
     if (d.canvasUiUrl) CANVAS_UI = d.canvasUiUrl;
     boardEl.innerHTML = d.projects.map(laneHTML).join("");
@@ -114,7 +114,7 @@ async function submitPrompt() {
   showAnswer("", true);
   try {
     const d = await (
-      await fetch("/api/ask", {
+      await fetch("api/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ request }),
@@ -153,8 +153,8 @@ async function startVoice() {
   catEl.classList.add("live");
   vstatus("🎙 connecting…");
   try {
-    voiceCfg = await (await fetch("/api/voice-config")).json();
-    const token = await (await fetch("/api/realtime/token", { method: "POST" })).json();
+    voiceCfg = await (await fetch("api/voice-config")).json();
+    const token = await (await fetch("api/realtime/token", { method: "POST" })).json();
     if (token.error) throw new Error(token.error);
 
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -238,7 +238,7 @@ async function handleVoiceEvent(ev) {
       showAnswer("", true);
       try {
         const d = await (
-          await fetch("/api/agent/ask_the_agent", {
+          await fetch("api/agent/ask_the_agent", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(args),
