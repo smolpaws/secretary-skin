@@ -1,0 +1,10 @@
+{
+  "name": "secretary-skin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Secretary — a conversation-manager board for the insider SmolPaws cat, shipped as an Agent Canvas skin.",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

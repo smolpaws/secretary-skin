@@ -1,0 +1,7 @@
+name: Secretary
+# Lucide icon for the sidebar nav entry (lowercase kebab-case).
+icon: clipboard-list
+# This skin only ships a UI; it does not reconfigure the instance (no
+# mcp_servers / llm / settings / skills blocks), so installing it is
+# non-destructive to the host's existing agent settings.
+canvas_version: ">=1.10.0"
