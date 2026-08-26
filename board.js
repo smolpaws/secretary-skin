@@ -169,6 +169,65 @@ function vstatus(text, kind = "") {
   vstatusEl.className = `vstatus ${kind}`;
 }
 
+// ---- voice memory ---------------------------------------------------------
+// The board lives in an iframe; navigating Canvas away tears the page down and
+// kills the live WebRTC session — it cannot survive that. So we persist the
+// spoken transcript (same-origin localStorage survives the unmount) and
+// re-seed it into the model on the next start, so the cat "remembers" the
+// conversation instead of starting blank. Cleared only when the human hits
+// "new session".
+const VOICE_MEM_KEY = "secretary.voice.transcript.v1";
+const VOICE_MEM_MAX = 40; // keep the last N lines
+
+function loadTranscript() {
+  try {
+    return JSON.parse(localStorage.getItem(VOICE_MEM_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function saveTranscript(lines) {
+  try {
+    localStorage.setItem(VOICE_MEM_KEY, JSON.stringify(lines.slice(-VOICE_MEM_MAX)));
+  } catch {
+    /* storage full / disabled — best effort */
+  }
+}
+function pushTranscript(role, text) {
+  const t = String(text || "").trim();
+  if (!t) return;
+  const lines = loadTranscript();
+  lines.push({ role, text: t });
+  saveTranscript(lines);
+  updateMemUI();
+}
+function clearTranscript() {
+  try {
+    localStorage.removeItem(VOICE_MEM_KEY);
+  } catch {
+    /* ignore */
+  }
+  updateMemUI();
+}
+function transcriptForPrompt() {
+  const lines = loadTranscript();
+  if (!lines.length) return "";
+  const body = lines
+    .map((l) => `${l.role === "user" ? "Human" : "You"}: ${l.text}`)
+    .join("\n");
+  return (
+    "\n\nEARLIER IN THIS SESSION (you remember this — the voice link may have " +
+    "dropped, e.g. the human navigated away, but the conversation continues; " +
+    "do NOT greet as if new):\n" +
+    body
+  );
+}
+function updateMemUI() {
+  const n = loadTranscript().length;
+  const b = el("newsession");
+  if (b) b.style.display = n ? "inline" : "none";
+}
+
 async function startVoice() {
   catEl.classList.add("live");
   vstatus("🎙 connecting…");
@@ -186,13 +245,16 @@ async function startVoice() {
 
     dc = pc.createDataChannel("oai-events");
     dc.onopen = () => {
-      vstatus("🎙 listening — talk to the cat", "live");
-      // Seed the cat with whatever is already in the box (e.g. from a bead
-      // click) so it starts the conversation aware of the in-progress text,
-      // and can still re-read it live via get_prompt_box.
+      const resumed = loadTranscript().length > 0;
+      vstatus(resumed ? "🎙 listening — resumed" : "🎙 listening — talk to the cat", "live");
+      // Seed the cat with (a) any prior spoken transcript so it remembers the
+      // conversation across a dropped link / navigating away, and (b) whatever
+      // is already in the box (e.g. from a card click). It can also re-read the
+      // box live via get_prompt_box.
       const box = promptEl.value.trim();
       const instructions =
         voiceCfg.context +
+        transcriptForPrompt() +
         (box
           ? `\n\nRight now the human's prompt box already contains this in-progress text:\n"""\n${box}\n"""`
           : "\n\nRight now the human's prompt box is empty.");
@@ -204,9 +266,17 @@ async function startVoice() {
             instructions,
             tools: voiceCfg.tools,
             tool_choice: "auto",
+            // Ensure the human's speech is transcribed so we can persist it.
+            audio: {
+              input: { transcription: { model: "gpt-4o-mini-transcribe" } },
+            },
           },
         }),
       );
+      // If resuming, nudge the cat to continue rather than re-introduce itself.
+      if (resumed) {
+        dc.send(JSON.stringify({ type: "response.create" }));
+      }
     };
     dc.onmessage = (e) => handleVoiceEvent(JSON.parse(e.data));
 
@@ -238,6 +308,21 @@ function stopVoice() {
 }
 
 async function handleVoiceEvent(ev) {
+  // Persist both sides of the spoken conversation so it survives the iframe
+  // being torn down (navigating away) and can be re-seeded on the next start.
+  if (
+    ev.type === "conversation.item.input_audio_transcription.completed" &&
+    ev.transcript
+  ) {
+    pushTranscript("user", ev.transcript);
+  } else if (
+    (ev.type === "response.output_audio_transcript.done" ||
+      ev.type === "response.audio_transcript.done") &&
+    ev.transcript
+  ) {
+    pushTranscript("assistant", ev.transcript);
+  }
+
   if (ev.type === "response.function_call_arguments.done") {
     let args = {};
     try {
@@ -289,6 +374,18 @@ catEl.addEventListener("click", () => {
   else startVoice();
 });
 
+// "new session" — the intentional forget. Stops any live voice and drops the
+// remembered transcript so the next start begins blank.
+const newSessionEl = el("newsession");
+if (newSessionEl) {
+  newSessionEl.addEventListener("click", () => {
+    if (pc) stopVoice();
+    clearTranscript();
+    vstatus("🎙 new session — click the cat to talk");
+  });
+}
+
 // ---- go -------------------------------------------------------------------
 el("refresh").addEventListener("click", loadBoard);
+updateMemUI();
 loadBoard();
