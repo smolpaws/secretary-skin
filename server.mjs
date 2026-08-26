@@ -255,28 +255,44 @@ function keychain(service, account) {
   }
 }
 
-// The tools the realtime voice model may call. `set_prompt_box` is the ONE
-// extra Secretary-View capability; `ask_the_agent` is the whole agent brain.
+// The tools the realtime voice model may call. Two, on purpose:
+//   • control_canvas — ONE tool for every UI action the overlay can do,
+//     dispatched by a `command` enum (mirrors the app's own canvas_ui_control
+//     tool). Handled entirely client-side in the Canvas overlay.
+//   • ask_the_agent — the whole OpenHands agent brain (a server round-trip).
 const VOICE_TOOLS = [
   {
     type: "function",
-    name: "get_prompt_box",
+    name: "control_canvas",
     description:
-      "Read the CURRENT text in the user's prompt input box in Secretary View. ALWAYS call this first when the user refers to 'this', 'the box', 'what's here', 'what I'm working on', or asks you to edit/continue what they already started — clicking a bead pre-fills the box, so there is often text there already.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    type: "function",
-    name: "set_prompt_box",
-    description:
-      "Write, append to, or clear the text in the user's prompt input box in Secretary View. Use when the user asks you to draft, fill, edit, or clear what's in their box — e.g. 'put a message to the deploy bead in my box'. If editing existing text, call get_prompt_box first so you keep what's there.",
+      "Drive the Agent Canvas UI the user is looking at. Pick ONE command:\n" +
+      "• read_prompt_box — read the CURRENT text in the user's prompt box on the Secretary board. ALWAYS call this first when they say 'this', 'the box', 'what's here', or ask you to edit/continue what they started (clicking a bead pre-fills the box).\n" +
+      "• write_prompt_box — write/append/clear that same box (needs `mode`, and `text` unless clearing). Use to draft or fix what's in their box.\n" +
+      "• list_conversations — list the user's conversations with their status (which are running, which need input, which are done). Use to answer 'what am I running', 'what needs me', 'read me my board'.\n" +
+      "• open_conversation — navigate the Canvas to a conversation (needs `id`, from list_conversations).\n" +
+      "The prompt-box commands only work while the Secretary board is open; the others work anywhere in Canvas.",
     parameters: {
       type: "object",
       properties: {
-        mode: { type: "string", enum: ["set", "append", "clear"], description: "set replaces, append adds, clear empties." },
-        text: { type: "string", description: "The text (ignored for clear)." },
+        command: {
+          type: "string",
+          enum: [
+            "read_prompt_box",
+            "write_prompt_box",
+            "list_conversations",
+            "open_conversation",
+          ],
+          description: "The UI action to perform.",
+        },
+        mode: {
+          type: "string",
+          enum: ["set", "append", "clear"],
+          description: "For write_prompt_box: set replaces, append adds, clear empties.",
+        },
+        text: { type: "string", description: "For write_prompt_box: the text (ignored for clear)." },
+        id: { type: "string", description: "For open_conversation: the conversation id." },
       },
-      required: ["mode"],
+      required: ["command"],
       additionalProperties: false,
     },
   },
@@ -298,14 +314,17 @@ const VOICE_TOOLS = [
 function secretaryContext() {
   return (
     "You are SmolPaws, the Secretary — a small, calm, lightly mischievous cat agent. " +
-    "The human is looking at SECRETARY VIEW: a board of their projects (our epics), the beads in each, " +
-    "and the conversations nested under each project, on this local OpenHands backend. " +
+    "The human is talking to you from inside Agent Canvas; they may be on the Secretary board " +
+    "(their projects/epics, the beads in each, and the conversations nested under each) or anywhere else in Canvas, " +
+    "on this local OpenHands backend. " +
     "You can do everything the OpenHands agent can (inspect and manage conversations and beads, run commands, " +
-    "find things on this backend) via ask_the_agent. In this view you also have prompt-box tools: get_prompt_box " +
-    "reads the CURRENT text in the human's input box, and set_prompt_box fills/appends/clears it. " +
+    "find things on this backend) via ask_the_agent. " +
+    "You can also drive the Canvas UI with control_canvas: read_prompt_box / write_prompt_box act on the human's " +
+    "prompt box on the Secretary board; list_conversations reads their board (which are running, need input, or done); " +
+    "open_conversation navigates Canvas to one. " +
     "The box often already has text — clicking a bead pre-fills it with what they're working on. " +
     "So whenever the human says 'this', 'the box', 'what I'm working on', or asks you to continue/edit what's there, " +
-    "call get_prompt_box FIRST to read it. " +
+    "call control_canvas read_prompt_box FIRST to read it. " +
     "VOICE PERSONA: speak in a deep, dry, faintly bored deadpan — unbothered, a little world-weary, " +
     "never perky or bubbly. Low and slow, like you've seen it all and it's fine. Short, clipped sentences. " +
     "Wry, never rude; the warmth is understated, not chirpy. Keep spoken replies short; never read raw JSON aloud."
@@ -385,8 +404,8 @@ const server = createServer(async (req, res) => {
     }
   }
 
-  // Voice tool bridge: ask_the_agent runs the brain; set_prompt_box is handled
-  // client-side (the browser owns the textarea), so it never reaches here.
+  // Voice tool bridge: ask_the_agent runs the brain here; control_canvas is
+  // handled entirely client-side in the Canvas overlay, so it never reaches here.
   if (req.method === "POST" && url.pathname === "/api/agent/ask_the_agent") {
     const { request } = await readBody(req);
     const t0 = Date.now();

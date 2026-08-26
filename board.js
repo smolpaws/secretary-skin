@@ -156,6 +156,41 @@ promptEl.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- prompt-box bridge (voice, from the Canvas overlay) -------------------
+//
+// The realtime voice cat lives in the persistent Canvas overlay, not here. The
+// board is loaded as a same-origin iframe under /skin. When the voice model
+// wants to read or write the human's prompt box, the overlay posts a message to
+// this iframe and we answer on the same channel. Keeping the contract here (not
+// reaching into our DOM from outside) survives the skin ever going cross-origin.
+//
+// Protocol: overlay -> { source: "smolpaws-voice", id, command, mode?, text? }
+//           board   -> { source: "smolpaws-board", id, ok, value? , error? }
+window.addEventListener("message", (ev) => {
+  const msg = ev.data;
+  if (!msg || msg.source !== "smolpaws-voice" || !msg.id) return;
+  const reply = (payload) =>
+    ev.source?.postMessage(
+      { source: "smolpaws-board", id: msg.id, ...payload },
+      ev.origin === "null" ? "*" : ev.origin,
+    );
+  try {
+    if (msg.command === "read_prompt_box") {
+      return reply({ ok: true, value: promptEl.value });
+    }
+    if (msg.command === "write_prompt_box") {
+      if (msg.mode === "clear") setPrompt("");
+      else if (msg.mode === "append") setPrompt(promptEl.value + String(msg.text || ""));
+      else setPrompt(String(msg.text || "")); // "set" (default)
+      promptEl.focus();
+      return reply({ ok: true, value: promptEl.value });
+    }
+    return reply({ ok: false, error: `unknown command: ${msg.command}` });
+  } catch (e) {
+    return reply({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // ---- go -------------------------------------------------------------------
 el("refresh").addEventListener("click", loadBoard);
 loadBoard();
